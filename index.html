@@ -12,9 +12,39 @@
         .form-group { margin-bottom: 18px; }
         label { display: block; font-weight: bold; margin-bottom: 6px; color: #2c3e50; font-size: 0.9em; }
         input[type="text"], input[type="email"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 14px; }
-        .city-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
-        .city-row input.ville-input { flex: 2; }
-        .city-row input.cp-input { flex: 1; }
+        
+        /* Conteneur de ligne commune + menu de suggestions */
+        .city-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; position: relative; }
+        .ville-wrapper { flex: 2; position: relative; }
+        .cp-input { flex: 1; background-color: #f9fbfb; }
+        
+        .suggestions-box {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #3498db;
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            z-index: 1000;
+            max-height: 200px;
+            overflow-y: auto;
+            display: none;
+        }
+        .suggestion-item {
+            padding: 10px 12px;
+            cursor: pointer;
+            font-size: 13.5px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+        }
+        .suggestion-item:last-child { border-bottom: none; }
+        .suggestion-item:hover { background-color: #ebf5fb; color: #2980b9; font-weight: bold; }
+        .suggestion-cp { color: #7f8c8d; font-size: 0.9em; }
+
         .btn-remove { background: #e74c3c; color: white; border: none; border-radius: 5px; padding: 10px 12px; cursor: pointer; font-weight: bold; }
         .btn-add { background: #ecf0f1; color: #2c3e50; border: 1px dashed #bdc3c7; width: 100%; padding: 10px; border-radius: 5px; cursor: pointer; font-weight: bold; margin-bottom: 20px; transition: 0.2s; }
         .btn-add:hover { background: #e0e6e8; }
@@ -27,7 +57,7 @@
 
 <div class="form-container">
     <h1>🏠 Créer mon alerte immobilière</h1>
-    <p class="subtitle">Indiquez vos coordonnées et les communes recherchées pour recevoir le suivi quotidien des annonces.</p>
+    <p class="subtitle">Indiquez vos coordonnées et sélectionnez les communes recherchées dans la liste.</p>
 
     <form id="alert-form">
         <!-- Clé publique Web3Forms -->
@@ -49,8 +79,11 @@
             <label>Communes ciblées *</label>
             <div id="cities-list">
                 <div class="city-row">
-                    <input type="text" class="ville-input" placeholder="Ville (ex: Salon-de-Provence)" required>
-                    <input type="text" class="cp-input" placeholder="Code Postal (ex: 13300)" required>
+                    <div class="ville-wrapper">
+                        <input type="text" class="ville-input" placeholder="Tapez le nom d'une ville..." autocomplete="off" required>
+                        <div class="suggestions-box"></div>
+                    </div>
+                    <input type="text" class="cp-input" placeholder="Code Postal" required>
                 </div>
             </div>
             <button type="button" class="btn-add" onclick="ajouterVille()">+ Ajouter une autre commune</button>
@@ -62,19 +95,85 @@
 </div>
 
 <script>
-    // URL de ton relais Google Apps Script (aucun secret exposé ici)
+    // URL de ton relais Google Apps Script
     const GOOGLE_SCRIPT_URL = "https://script.google.com/a/macros/airbus.com/s/AKfycbwYEoVUNvaJNNJM-_gjFRcno-kHqD6vFuLBtVYE6YQKcUuzteMqgBOHc0grmtgZvZxJJw/exec";
+
+    // Active l'autocomplétion API Gouv sur une ligne de commune donnée
+    function initialiserAutocompletion(row) {
+        const villeInput = row.querySelector('.ville-input');
+        const cpInput = row.querySelector('.cp-input');
+        const suggestionsBox = row.querySelector('.suggestions-box');
+        let debounceTimer;
+
+        villeInput.addEventListener('input', function() {
+            clearTimeout(debounceTimer);
+            const query = this.value.trim();
+
+            if (query.length < 2) {
+                suggestionsBox.style.display = 'none';
+                return;
+            }
+
+            debounceTimer = setTimeout(async () => {
+                try {
+                    const url = `https://geo.api.gouv.fr/communes?nom=${encodeURIComponent(query)}&fields=nom,codesPostaux&boost=population&limit=7`;
+                    const resp = await fetch(url);
+                    const communes = await resp.json();
+
+                    suggestionsBox.innerHTML = '';
+                    if (!communes || communes.length === 0) {
+                        suggestionsBox.style.display = 'none';
+                        return;
+                    }
+
+                    communes.forEach(commune => {
+                        const cps = commune.codesPostaux && commune.codesPostaux.length > 0 ? commune.codesPostaux : [''];
+                        cps.forEach(cp => {
+                            const item = document.createElement('div');
+                            item.className = 'suggestion-item';
+                            item.innerHTML = `<span>${commune.nom}</span><span class="suggestion-cp">${cp}</span>`;
+                            
+                            item.addEventListener('click', () => {
+                                villeInput.value = commune.nom;
+                                cpInput.value = cp;
+                                suggestionsBox.style.display = 'none';
+                            });
+                            suggestionsBox.appendChild(item);
+                        });
+                    });
+
+                    suggestionsBox.style.display = 'block';
+                } catch (err) {
+                    console.error("Erreur API Géo :", err);
+                }
+            }, 200);
+        });
+
+        // Ferme la liste si l'utilisateur clique ailleurs sur la page
+        document.addEventListener('click', function(e) {
+            if (!row.contains(e.target)) {
+                suggestionsBox.style.display = 'none';
+            }
+        });
+    }
+
+    // Initialiser la première ligne au chargement
+    initialiserAutocompletion(document.querySelector('.city-row'));
 
     function ajouterVille() {
         const container = document.getElementById('cities-list');
         const row = document.createElement('div');
         row.className = 'city-row';
         row.innerHTML = `
-            <input type="text" class="ville-input" placeholder="Ville" required>
+            <div class="ville-wrapper">
+                <input type="text" class="ville-input" placeholder="Tapez le nom d'une ville..." autocomplete="off" required>
+                <div class="suggestions-box"></div>
+            </div>
             <input type="text" class="cp-input" placeholder="Code Postal" required>
             <button type="button" class="btn-remove" onclick="this.parentElement.remove()" title="Supprimer">✕</button>
         `;
         container.appendChild(row);
+        initialiserAutocompletion(row);
     }
 
     document.getElementById('alert-form').addEventListener('submit', async function(e) {
@@ -131,7 +230,13 @@
             statusMsg.style.backgroundColor = "#d4efdf";
             statusMsg.style.color = "#1e8449";
             statusMsg.textContent = "✅ Votre alerte a bien été créée et ajoutée automatiquement au robot !";
+            
+            // Réinitialise le formulaire et ne garde qu'une seule ligne de ville vierge
             this.reset();
+            const citiesList = document.getElementById('cities-list');
+            while (citiesList.children.length > 1) {
+                citiesList.removeChild(citiesList.lastChild);
+            }
 
         } catch (error) {
             statusMsg.style.display = "block";
