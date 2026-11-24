@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration d'Alerte Immobilière</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f4f7f6; color: #333; padding: 20px; display: flex; justify-content: center; }
+        .form-container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 550px; width: 100%; border-top: 5px solid #3498db; }
+        h1 { color: #2c3e50; font-size: 1.5em; text-align: center; margin-bottom: 10px; }
+        p.subtitle { text-align: center; color: #7f8c8d; font-size: 0.9em; margin-bottom: 25px; }
+        .form-group { margin-bottom: 18px; }
+        label { display: block; font-weight: bold; margin-bottom: 6px; color: #2c3e50; font-size: 0.9em; }
+        input[type="text"], input[type="email"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 14px; }
+        .city-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+        .city-row input.ville-input { flex: 2; }
+        .city-row input.cp-input { flex: 1; }
+        .btn-remove { background: #e74c3c; color: white; border: none; border-radius: 5px; padding: 10px 12px; cursor: pointer; font-weight: bold; }
+        .btn-add { background: #ecf0f1; color: #2c3e50; border: 1px dashed #bdc3c7; width: 100%; padding: 10px; border-radius: 5px; cursor: pointer; font-weight: bold; margin-bottom: 20px; transition: 0.2s; }
+        .btn-add:hover { background: #e0e6e8; }
+        .btn-submit { background: #27ae60; color: white; border: none; width: 100%; padding: 14px; border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        .btn-submit:hover { background: #219150; }
+        #status-msg { margin-top: 15px; text-align: center; font-weight: bold; display: none; padding: 12px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="form-container">
+    <h1>🏠 Créer mon alerte immobilière</h1>
+    <p class="subtitle">Indiquez vos coordonnées et les communes recherchées pour recevoir le suivi quotidien des annonces.</p>
+
+    <form id="alert-form">
+        <!-- Clé API Web3Forms -->
+        <input type="hidden" name="access_token" value="3a64e445-25e5-4929-8e93-092b8ebc2f4a">
+        <input type="hidden" name="subject" value="Nouvelle demande d'alerte immobilière">
+        <input type="hidden" id="csv-payload" name="Lignes_a_ajouter_dans_villes_csv">
+
+        <div class="form-group">
+            <label>Nom du demandeur (ou nom de la zone) *</label>
+            <input type="text" id="client-name" name="Demandeur" placeholder="Ex: Dupont" required>
+        </div>
+
+        <div class="form-group">
+            <label>Adresse e-mail où envoyer les annonces *</label>
+            <input type="email" id="client-email" name="Email_Destination" placeholder="client@exemple.com" required>
+        </div>
+
+        <div class="form-group">
+            <label>Communes ciblées *</label>
+            <div id="cities-list">
+                <div class="city-row">
+                    <input type="text" class="ville-input" placeholder="Ville (ex: Salon-de-Provence)" required>
+                    <input type="text" class="cp-input" placeholder="Code Postal (ex: 13300)" required>
+                </div>
+            </div>
+            <button type="button" class="btn-add" onclick="ajouterVille()">+ Ajouter une autre commune</button>
+        </div>
+
+        <button type="submit" class="btn-submit">Valider ma recherche</button>
+        <div id="status-msg"></div>
+    </form>
+</div>
+
+<script>
+    function ajouterVille() {
+        const container = document.getElementById('cities-list');
+        const row = document.createElement('div');
+        row.className = 'city-row';
+        row.innerHTML = `
+            <input type="text" class="ville-input" placeholder="Ville" required>
+            <input type="text" class="cp-input" placeholder="Code Postal" required>
+            <button type="button" class="btn-remove" onclick="this.parentElement.remove()" title="Supprimer">✕</button>
+        `;
+        container.appendChild(row);
+    }
+
+    document.getElementById('alert-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const statusMsg = document.getElementById('status-msg');
+        const submitBtn = document.querySelector('.btn-submit');
+        
+        // Nettoyage du nom pour en faire un identifiant de Zone propre (sans espaces ni accents)
+        const rawName = document.getElementById('client-name').value.trim();
+        const zoneCode = rawName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "");
+
+        // Formatage automatique au format exact de ton fichier villes.csv
+        let lignesCsv = [];
+        document.querySelectorAll('.city-row').forEach(row => {
+            const v = row.querySelector('.ville-input').value.trim();
+            const cp = row.querySelector('.cp-input').value.trim();
+            if (v && cp) {
+                lignesCsv.push(`${zoneCode};${v};${cp}`);
+            }
+        });
+        document.getElementById('csv-payload').value = "\n" + lignesCsv.join("\n");
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Envoi en cours...";
+
+        const formData = new FormData(this);
+        try {
+            const response = await fetch("https://api.web3forms.com/submit", {
+                method: "POST",
+                body: formData
+            });
+            const result = await response.json();
+
+            if (result.success) {
+                statusMsg.style.display = "block";
+                statusMsg.style.backgroundColor = "#d4efdf";
+                statusMsg.style.color = "#1e8449";
+                statusMsg.textContent = "✅ Votre demande a bien été transmise !";
+                this.reset();
+            } else {
+                throw new Error("Erreur lors de l'envoi");
+            }
+        } catch (error) {
+            statusMsg.style.display = "block";
+            statusMsg.style.backgroundColor = "#fadbd8";
+            statusMsg.style.color = "#922b21";
+            statusMsg.textContent = "❌ Une erreur est survenue, veuillez réessayer.";
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Valider ma recherche";
+        }
+    });
+</script>
+
+</body>
+</html>
